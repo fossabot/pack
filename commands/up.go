@@ -22,6 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"bytes"
 	"io"
+	"fmt"
+	kin_api "k8s.io/kubectl/pkg/apis/manifest/v1alpha1"
 )
 
 var (
@@ -33,6 +35,7 @@ var (
 
 const CompileDirectory = "output"
 
+
 func NewUpCommand(plugin bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "up",
@@ -40,6 +43,7 @@ func NewUpCommand(plugin bool) *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			var err error
 			rootPath, err = cmd.Flags().GetString("file")
+
 			if err != nil {
 				log.Fatalln(errors.WithStack(err))
 			}
@@ -123,6 +127,19 @@ func visitPatchAndDump(path string, fileInfo os.FileInfo, ferr error) error {
 			}
 			srcYamlByte = yml
 		}
+		fmt.Println("--------------------")
+		fmt.Println(rootPath)
+		kubeManifestPath := filepath.Join(rootPath, KinflateManifestName)
+		if !filepath.IsAbs(kubeManifestPath) {
+			return errors.Errorf("Kube-manifest.yaml's path is not absolute.")
+		}
+		prefixedYml, err := addNamePrefixInResources(rootPath, srcFilepath, srcYamlByte)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		fmt.Println(string(prefixedYml))
+
+		fmt.Println("-------------------")
 		err = DumpCompiledFile(srcYamlByte, strings.Replace(path, _VendorFolder, CompileDirectory, 1))
 		if err != nil {
 			return errors.Wrap(err, "Error to evaluate jsonet: DumpCompiledFile")
@@ -356,4 +373,44 @@ func checkGVKN(srcJson, patchJson []byte) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+func addNamePrefixInResources(root, srcPath string, resourceYml []byte) ([]byte, error) {
+	manifestpath := filepath.Join(root, KinflateManifestName)
+	manifestYml, err := ioutil.ReadFile(manifestpath)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	kubeManifest := kin_api.Manifest{}
+	err = yaml.Unmarshal(manifestYml, &kubeManifest)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	if kubeManifest.NamePrefix == "" {
+		return resourceYml, nil
+	}
+	if !checkResourceExists(kubeManifest.Resources, srcPath) {
+
+	}
+	for _, val := range kubeManifest.Resources {
+		var resourcePath string
+		if !filepath.IsAbs(val) {
+			resourcePath = filepath.Join(root, val)
+		}
+		if _, err := os.Stat(resourcePath); os.IsNotExist(err) {
+			return nil, errors.WithStack(err)
+		}
+	}
+	return resourceYml, nil
+}
+
+func checkResourceExists(s []string, p string, ) bool {
+	for _, val := range s {
+		var path string
+		path = val
+		if !filepath.IsAbs(val) {
+			path = val
+		}
+	}
+	return false
 }
